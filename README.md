@@ -2,104 +2,91 @@
 
 # 🔋 Claude Usage Battery
 
-**La tua percentuale rimasta di Claude Code, come una batteria — accanto alla batteria del sistema.**
+**Your remaining Claude Code usage, displayed as a battery — right next to your system battery.**
 
-<img src="docs/preview.png" alt="Anteprima: batteria verde, gialla e rossa con il logo Claude" width="620">
+<img src="docs/preview.png" alt="Preview: green, yellow and red battery with Claude logo" width="620">
 
-*macOS (barra dei menu) · Windows / Linux (system tray) · installabile con `pip`/`pipx`*
+*macOS (menu bar) · Windows / Linux (system tray) · installable via `pip`/`pipx`*
 
 </div>
 
 ---
 
-## Indice
-- [Cos'è](#cosè)
-- [Come appare](#come-appare)
-- [Come funziona il dato (e la privacy)](#come-funziona-il-dato-e-la-privacy)
-- [Requisiti](#requisiti)
-- [Installazione](#installazione)
-  - [A · pipx (consigliata)](#a--pipx-consigliata)
-  - [B · pip in un virtualenv](#b--pip-in-un-virtualenv)
-  - [C · installer doppio-click](#c--installer-doppio-click)
-- [Avvio automatico](#avvio-automatico)
-  - [Quando avvii Claude Code (`claude` nel terminale)](#quando-avvii-claude-code-claude-nel-terminale)
-  - [All'accensione del computer](#allaccensione-del-computer)
-- [Configurazione](#configurazione)
-- [Aggiornare l'app](#aggiornare-lapp)
-- [Condividerla con altri](#condividerla-con-altri)
-- [Disinstallazione](#disinstallazione)
-- [Risoluzione problemi (FAQ)](#risoluzione-problemi-faq)
-- [Come è fatta (dettagli tecnici)](#come-è-fatta-dettagli-tecnici)
-- [Struttura del progetto](#struttura-del-progetto)
-- [Note e limiti](#note-e-limiti)
-- [Licenza](#licenza)
+## Table of Contents
+- [What is it](#what-is-it)
+- [How it looks](#how-it-looks)
+- [How the data works (and privacy)](#how-the-data-works-and-privacy)
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [A · pipx (recommended)](#a--pipx-recommended)
+  - [B · pip in a virtualenv](#b--pip-in-a-virtualenv)
+  - [C · double-click installer](#c--double-click-installer)
+- [Auto-start](#auto-start)
+  - [When you launch Claude Code (`claude` in the terminal)](#when-you-launch-claude-code-claude-in-the-terminal)
+  - [At system startup](#at-system-startup)
+- [Configuration](#configuration)
+- [Updating the app](#updating-the-app)
+- [Sharing with others](#sharing-with-others)
+- [Uninstallation](#uninstallation)
+- [Troubleshooting (FAQ)](#troubleshooting-faq)
+- [How it works (technical details)](#how-it-works-technical-details)
+- [Project structure](#project-structure)
+- [Notes and limitations](#notes-and-limitations)
+- [License](#license)
 
 ---
 
-## Cos'è
-`Claude Usage Battery` è una piccola app che vive nella barra di stato del tuo
-computer e mostra, come un'icona a batteria, **quanto ti resta del tuo utilizzo
-di Claude Code**. Il riempimento e il colore rappresentano la **finestra di 5
-ore** (quella che determina quando "si rinnovano i token"). Al centro c'è il
-**logo di Claude**, così la distingui a colpo d'occhio dalla batteria di sistema.
+## What is it
+`Claude Usage Battery` is a small app that lives in your computer's status bar and shows — as a battery icon — **how much of your Claude Code usage is left**. The fill level and color represent the **5-hour window** (the one that determines when tokens are renewed). The **Claude logo** sits at the center so you can distinguish it at a glance from the system battery.
 
-Cliccando l'icona vedi i dettagli: percentuale usata/rimasta e **conto alla
-rovescia del reset**, sia per le **5 ore** sia per la **settimana**.
+Clicking the icon shows the details: used/remaining percentage and a **countdown to reset**, for both the **5-hour** and **weekly** windows.
 
-## Come appare
-| Livello | Colore | Significato |
-|:------:|:------:|:------------|
-| ≥ 50 % | 🟢 verde  | Sei tranquillo |
-| 20–49 % | 🟠 giallo | Occhio, stai consumando |
-| < 20 % | 🔴 rosso  | Quasi esaurito, sta per rinnovarsi |
+## How it looks
+| Level | Color | Meaning |
+|:-----:|:-----:|:--------|
+| ≥ 50% | 🟢 green  | You're good |
+| 20–49% | 🟠 yellow | Watch out, you're burning through it |
+| < 20% | 🔴 red  | Almost depleted, reset incoming |
 
-Accanto all'icona compare anche la percentuale in numero (es. `42%`).
-L'app si aggiorna da sola ogni **30 secondi**.
+The percentage is also shown as a number next to the icon (e.g. `42%`).
+The app refreshes itself every **30 seconds**.
 
-## Come funziona il dato (e la privacy)
-Questa percentuale **non è salvata in nessun file locale**: Claude Code la
-ottiene chiamando un endpoint di Anthropic con il tuo token di login. L'app fa
-esattamente la stessa cosa:
+## How the data works (and privacy)
+This percentage **is not stored in any local file**: Claude Code retrieves it by calling an Anthropic endpoint with your login token. The app does exactly the same thing:
 
-1. Legge il tuo **token OAuth locale** — dal **Portachiavi** su macOS (voce
-   `Claude Code-credentials`), oppure dal file `~/.claude/.credentials.json` su
-   Windows/Linux.
-2. Chiama `GET https://api.anthropic.com/api/oauth/usage` (lo stesso endpoint del
-   comando `/usage`).
-3. Se il token è scaduto, lo **rinnova automaticamente** e riprova.
+1. Reads your **local OAuth token** — from the **Keychain** on macOS (entry `Claude Code-credentials`), or from `~/.claude/.credentials.json` on Windows/Linux.
+2. Calls `GET https://api.anthropic.com/api/oauth/usage` (the same endpoint used by the `/usage` command).
+3. If the token has expired, it **renews it automatically** and retries.
 
-> 🔒 **Il token non lascia mai il tuo computer.** Viene usato solo per parlare
-> con `api.anthropic.com`, come fa già Claude Code. Nessun dato viene inviato a
-> terzi. Serve soltanto aver fatto **login in Claude Code almeno una volta**.
+> 🔒 **Your token never leaves your computer.** It is only used to talk to `api.anthropic.com`, just like Claude Code already does. No data is sent to third parties. You only need to have **logged into Claude Code at least once**.
 
-## Requisiti
+## Requirements
 - **Python 3.9+**
-- **Claude Code** installato e con login effettuato
-- macOS, Windows o Linux con una barra di stato / system tray
+- **Claude Code** installed and logged in
+- macOS, Windows or Linux with a status bar / system tray
 
 ---
 
-## Installazione
+## Installation
 
-### A · pipx (consigliata)
-`pipx` installa l'app in un ambiente isolato e crea il comando globale
-`claude-battery`. È il modo più pulito.
+### A · pipx (recommended)
+`pipx` installs the app in an isolated environment and creates the global command `claude-battery`. It's the cleanest approach.
 
 ```bash
-# 1) installa pipx se non ce l'hai
+# 1) install pipx if you don't have it
 python3 -m pip install --user pipx
-python3 -m pipx ensurepath      # poi riapri il terminale
+python3 -m pipx ensurepath      # then reopen your terminal
 
-# 2) installa l'app (scegli UNA sorgente)
-pipx install git+https://github.com/MicheleDaniele/claude-usage-battery   # da GitHub
-pipx install ./claude_usage_battery-1.0.0-py3-none-any.whl                # dal file .whl
-pipx install claude-usage-battery                                         # se su PyPI
+# 2) install the app (choose ONE source)
+pipx install git+https://github.com/MicheleDaniele/claude-usage-battery   # from GitHub
+pipx install ./claude_usage_battery-1.0.0-py3-none-any.whl                # from .whl file
+pipx install claude-usage-battery                                         # if on PyPI
 
-# 3) avvia
+# 3) launch
 claude-battery
 ```
 
-### B · pip in un virtualenv
+### B · pip in a virtualenv
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate                 # Windows: .venv\Scripts\activate
@@ -107,24 +94,21 @@ pip install git+https://github.com/MicheleDaniele/claude-usage-battery
 claude-battery
 ```
 
-### C · installer doppio-click
-Se non vuoi toccare il terminale, dopo aver scaricato il progetto:
-- **macOS** → doppio click su **`install-mac.command`**
-- **Windows** → tasto destro su **`install-windows.ps1`** → *Esegui con PowerShell*
-  (oppure `powershell -ExecutionPolicy Bypass -File install-windows.ps1`)
+### C · double-click installer
+If you'd rather not touch the terminal, after downloading the project:
+- **macOS** → double-click **`install-mac.command`**
+- **Windows** → right-click **`install-windows.ps1`** → *Run with PowerShell*
+  (or `powershell -ExecutionPolicy Bypass -File install-windows.ps1`)
 
-Gli installer creano l'ambiente, installano le dipendenze **e** configurano
-l'avvio automatico al login.
+The installers create the environment, install the dependencies **and** configure auto-start at login.
 
 ---
 
-## Avvio automatico
-Puoi collegare la batteria a Claude in due modi (non esclusivi).
+## Auto-start
+You can tie the battery to Claude in two ways (not mutually exclusive).
 
-### Quando avvii Claude Code (`claude` nel terminale)
-Ogni volta che apri una sessione di Claude Code — scrivendo `claude` nel
-terminale, aprendo l'IDE o l'app — la batteria parte da sola, grazie a un
-**hook `SessionStart`** in `~/.claude/settings.json`:
+### When you launch Claude Code (`claude` in the terminal)
+Every time you open a Claude Code session — by typing `claude` in the terminal, opening the IDE or the app — the battery starts automatically, thanks to a **`SessionStart` hook** in `~/.claude/settings.json`:
 
 ```json
 {
@@ -136,57 +120,52 @@ terminale, aprendo l'IDE o l'app — la batteria parte da sola, grazie a un
 }
 ```
 
-> Se hai installato dalla cartella locale, il comando può puntare a
-> `launch-mac.sh` invece di `claude-battery`: fa la stessa cosa. L'hook è
-> **idempotente**, quindi non avvia mai due icone.
+> If you installed from the local folder, the command can point to `launch-mac.sh` instead of `claude-battery`: they do the same thing. The hook is **idempotent**, so it never starts two icons.
 
-### All'accensione del computer
-Lo configurano gli installer (Opzione C): un *LaunchAgent* su macOS
-(`~/Library/LaunchAgents/com.claude.usagebattery.plist`) o un collegamento nella
-cartella *Esecuzione automatica* su Windows.
+### At system startup
+The installers (Option C) take care of this: a *LaunchAgent* on macOS (`~/Library/LaunchAgents/com.claude.usagebattery.plist`) or a shortcut in the *Startup* folder on Windows.
 
 ---
 
-## Configurazione
-Le impostazioni sono costanti in cima ai file, facili da cambiare:
+## Configuration
+Settings are constants at the top of each file, easy to change:
 
-| Cosa | Dove | Default |
-|------|------|---------|
-| Intervallo di aggiornamento | `menubar_mac.py` / `tray_windows.py` → `REFRESH_SECONDS` | `30` (secondi) |
-| Soglie di colore verde/giallo/rosso | `usage_core.py` → `level_color()` | `50` / `20` |
-| Dimensioni e proporzioni dell'icona | `battery_icon.py` → `draw_battery()` | — |
+| Setting | Where | Default |
+|---------|-------|---------|
+| Refresh interval | `menubar_mac.py` / `tray_windows.py` → `REFRESH_SECONDS` | `30` (seconds) |
+| Green/yellow/red color thresholds | `usage_core.py` → `level_color()` | `50` / `20` |
+| Icon size and proportions | `battery_icon.py` → `draw_battery()` | — |
 
 ---
 
-## Aggiornare l'app
-Dopo aver modificato il codice:
+## Updating the app
+After modifying the code:
 
 ```bash
 cd ~/Desktop/ClaudeUsageBattery
-# se usi pipx dalla cartella locale:
-python -m build                                   # ricrea dist/*.whl
+# if using pipx from the local folder:
+python -m build                                   # rebuilds dist/*.whl
 pipx install ./dist/claude_usage_battery-1.0.0-py3-none-any.whl --force
 
-# per aggiornare il repo GitHub:
-git add . && git commit -m "descrizione modifica" && git push
+# to update the GitHub repo:
+git add . && git commit -m "description of change" && git push
 ```
 
-Chi l'ha installata da GitHub aggiorna con:
+Users who installed from GitHub can update with:
 ```bash
 pipx upgrade claude-usage-battery
-# oppure: pipx install git+https://github.com/MicheleDaniele/claude-usage-battery --force
+# or: pipx install git+https://github.com/MicheleDaniele/claude-usage-battery --force
 ```
 
 ---
 
-## Condividerla con altri
-Dal più semplice:
+## Sharing with others
+From simplest to most involved:
 
-1. **File `.whl`** — manda `dist/claude_usage_battery-1.0.0-py3-none-any.whl`.
-   Chi lo riceve: `pipx install ./claude_usage_battery-1.0.0-py3-none-any.whl`.
-2. **Link GitHub** — `pipx install git+https://github.com/MicheleDaniele/claude-usage-battery`.
-3. **PyPI** (così basta `pip install claude-usage-battery`). Serve un account
-   PyPI e un token tuo:
+1. **`.whl` file** — send `dist/claude_usage_battery-1.0.0-py3-none-any.whl`.
+   The recipient runs: `pipx install ./claude_usage_battery-1.0.0-py3-none-any.whl`.
+2. **GitHub link** — `pipx install git+https://github.com/MicheleDaniele/claude-usage-battery`.
+3. **PyPI** (so anyone can just `pip install claude-usage-battery`). Requires a PyPI account and a token:
    ```bash
    pip install build twine
    python -m build
@@ -195,75 +174,66 @@ Dal più semplice:
 
 ---
 
-## Disinstallazione
-| Metodo di installazione | Come rimuovere |
-|-------------------------|----------------|
+## Uninstallation
+| Install method | How to remove |
+|----------------|---------------|
 | pipx | `pipx uninstall claude-usage-battery` |
-| Installer macOS | `launchctl unload ~/Library/LaunchAgents/com.claude.usagebattery.plist && rm ~/Library/LaunchAgents/com.claude.usagebattery.plist` |
-| Installer Windows | Elimina `ClaudeUsageBattery.lnk` dalla cartella *Esecuzione automatica* |
-| Hook di avvio | Togli la voce `SessionStart` da `~/.claude/settings.json` |
+| macOS installer | `launchctl unload ~/Library/LaunchAgents/com.claude.usagebattery.plist && rm ~/Library/LaunchAgents/com.claude.usagebattery.plist` |
+| Windows installer | Delete `ClaudeUsageBattery.lnk` from the *Startup* folder |
+| Launch hook | Remove the `SessionStart` entry from `~/.claude/settings.json` |
 
 ---
 
-## Risoluzione problemi (FAQ)
+## Troubleshooting (FAQ)
 
-**Vedo `login?` / "Accedi in Claude Code".**
-Non è stato trovato un token valido: apri Claude Code e fai login almeno una
-volta, poi clicca *Aggiorna adesso* nel menu dell'icona.
+**I see `login?` / "Log in to Claude Code".**
+No valid token was found: open Claude Code and log in at least once, then click *Refresh now* in the icon menu.
 
-**Ogni tanto compare "Aggiornamento non riuscito".**
-Normale: è un intoppo momentaneo di rete o un limite temporaneo di richieste.
-L'app tiene l'ultimo valore valido e riprova al ciclo successivo, da sola.
+**"Update failed" appears occasionally.**
+Normal: it's a momentary network hiccup or a temporary rate limit. The app keeps the last valid value and retries on the next cycle, automatically.
 
-**L'icona non compare nella barra dei menu (macOS).**
-Controlla il log: `cat /tmp/claude-usagebattery.log`. Assicurati che l'app abbia
-i permessi per leggere il Portachiavi (la prima volta macOS può chiedere conferma).
+**The icon doesn't appear in the menu bar (macOS).**
+Check the log: `cat /tmp/claude-usagebattery.log`. Make sure the app has permission to read the Keychain (macOS may ask for confirmation the first time).
 
-**Compaiono due icone.**
-Ne hai avviate due (es. da pipx e dal venv). Chiudine una dal menu *Esci*; l'hook
-di avvio evita i doppioni ai lanci successivi.
+**Two icons appear.**
+You started two instances (e.g. from pipx and from the venv). Close one via the *Quit* menu; the launch hook prevents duplicates on subsequent starts.
 
-**Le percentuali non cambiano.**
-Cambiano solo quando consumi/rilasci token: se non stai usando Claude, restano
-stabili fino al reset della finestra.
+**The percentages don't change.**
+They only change when you consume or release tokens: if you're not using Claude, they stay stable until the window resets.
 
 ---
 
-## Come è fatta (dettagli tecnici)
-- **Linguaggio:** Python, un unico core condiviso + due front-end di barra di stato.
-- **macOS:** [`rumps`](https://github.com/jaredks/rumps) per la barra dei menu.
-- **Windows/Linux:** [`pystray`](https://github.com/moses-palmer/pystray) per la tray.
-- **Icona:** disegnata con `Pillow` in super-sampling e ridotta con anti-aliasing;
-  il logo Claude è uno *stencil* attraversato dalla linea di carica, così resta
-  leggibile a ogni percentuale.
-- **Endpoint usati (interni di Claude Code):**
+## How it works (technical details)
+- **Language:** Python — a single shared core + two status-bar front-ends.
+- **macOS:** [`rumps`](https://github.com/jaredks/rumps) for the menu bar.
+- **Windows/Linux:** [`pystray`](https://github.com/moses-palmer/pystray) for the system tray.
+- **Icon:** drawn with `Pillow` using super-sampling and downscaled with anti-aliasing; the Claude logo is a *stencil* overlaid with the charge line, keeping it legible at any percentage.
+- **Endpoints used (Claude Code internals):**
   - Usage: `GET https://api.anthropic.com/api/oauth/usage`
     (header `Authorization: Bearer …`, `anthropic-beta: oauth-2025-04-20`)
-  - Refresh token: `POST https://platform.claude.com/v1/oauth/token`
-    (`grant_type=refresh_token`, client id di Claude Code)
-  - Risposta: `five_hour` e `seven_day`, ciascuno con `utilization` (percentuale)
-    e `resets_at` (data ISO).
+  - Token refresh: `POST https://platform.claude.com/v1/oauth/token`
+    (`grant_type=refresh_token`, Claude Code client id)
+  - Response: `five_hour` and `seven_day`, each with `utilization` (percentage)
+    and `resets_at` (ISO date).
 
-## Struttura del progetto
+## Project structure
 ```
 ClaudeUsageBattery/
-├── usage_core.py        # token locale + chiamata usage + refresh
-├── battery_icon.py      # disegno batteria colorata con logo Claude
-├── menubar_mac.py       # app barra dei menu (macOS, rumps)
-├── tray_windows.py      # app system tray (Windows/Linux, pystray)
-├── claude_battery.py    # entry point: comando `claude-battery`
-├── pyproject.toml       # pacchetto pip
-├── install-mac.command  # installer + avvio automatico (macOS)
-├── install-windows.ps1  # installer + avvio automatico (Windows)
-├── launch-mac.sh        # launcher idempotente (usato dall'hook)
-└── docs/preview.png     # immagine di anteprima
+├── usage_core.py        # local token + usage call + refresh
+├── battery_icon.py      # colored battery drawing with Claude logo
+├── menubar_mac.py       # menu bar app (macOS, rumps)
+├── tray_windows.py      # system tray app (Windows/Linux, pystray)
+├── claude_battery.py    # entry point: `claude-battery` command
+├── pyproject.toml       # pip package
+├── install-mac.command  # installer + auto-start (macOS)
+├── install-windows.ps1  # installer + auto-start (Windows)
+├── launch-mac.sh        # idempotent launcher (used by the hook)
+└── docs/preview.png     # preview image
 ```
 
-## Note e limiti
-- L'app usa **endpoint interni** di Claude Code: affidabili ma **non
-  documentati ufficialmente**. Se Anthropic li cambia, potrebbe servire un
-  piccolo aggiornamento di `usage_core.py`.
-- I valori mostrati sono gli stessi del comando `/usage`.
+## Notes and limitations
+- The app uses **Claude Code internal endpoints**: reliable but **not officially documented**. If Anthropic changes them, a small update to `usage_core.py` may be needed.
+- The values shown are the same as those from the `/usage` command.
 
-## Licenza
-MIT — vedi il campo `license` in `pyproject.toml`. Usala e modificala liberamente.
+## License
+MIT — see the `license` field in `pyproject.toml`. Use and modify it freely.
