@@ -36,17 +36,32 @@ ICON_PATH = os.path.join(tempfile.gettempdir(), "claude_battery_icon.png")
 _CLAUDE_PROCESS_NAMES = ("claude",)
 # Desktop app process name as it appears in pgrep.
 _CLAUDE_APP_NAME = "Claude"
+# Browser process names that may host Claude (e.g. Claude for Chrome extension).
+_BROWSER_PROCESS_NAMES = ("Google Chrome", "Chromium", "Brave Browser", "Arc")
+
+# Path to the "always visible" preference file.
+_ALWAYS_VISIBLE_FLAG = os.path.join(tempfile.gettempdir(), "claude_battery_always_visible")
+
+
+def _always_visible() -> bool:
+    return os.path.exists(_ALWAYS_VISIBLE_FLAG)
 
 
 def _is_claude_active() -> bool:
-    """Return True if at least one Claude process (CLI or desktop app) is running."""
+    """Return True if at least one Claude process (CLI, desktop app, or browser) is running."""
+    if _always_visible():
+        return True
     try:
         r = subprocess.run(
             ["ps", "-ax", "-o", "comm"],
             capture_output=True, text=True, timeout=5
         )
         names = set(line.strip() for line in r.stdout.splitlines())
-        return any(n in names for n in _CLAUDE_PROCESS_NAMES) or _CLAUDE_APP_NAME in names
+        return (
+            any(n in names for n in _CLAUDE_PROCESS_NAMES)
+            or _CLAUDE_APP_NAME in names
+            or any(n in names for n in _BROWSER_PROCESS_NAMES)
+        )
     except Exception:
         return False
 
@@ -63,6 +78,10 @@ class ClaudeBatteryApp(rumps.App):
         self.item_week = rumps.MenuItem("Weekly: —")
         self.item_week_reset = rumps.MenuItem("   resets: —")
         self.item_updated = rumps.MenuItem("Updated: never")
+        self.item_always_visible = rumps.MenuItem(
+            self._always_visible_label(),
+            callback=self.toggle_always_visible,
+        )
         self.menu = [
             self.item_5h,
             self.item_5h_reset,
@@ -72,6 +91,7 @@ class ClaudeBatteryApp(rumps.App):
             None,
             self.item_updated,
             rumps.MenuItem("Refresh now", callback=self.manual_refresh),
+            self.item_always_visible,
             None,
             rumps.MenuItem("Quit", callback=rumps.quit_application),
         ]
@@ -104,6 +124,17 @@ class ClaudeBatteryApp(rumps.App):
         img.save(ICON_PATH)
         self.icon = ICON_PATH
         self.template = False
+
+    def _always_visible_label(self) -> str:
+        return "Always visible: ON" if _always_visible() else "Always visible: OFF (Chrome)"
+
+    def toggle_always_visible(self, _):
+        if _always_visible():
+            os.remove(_ALWAYS_VISIBLE_FLAG)
+        else:
+            open(_ALWAYS_VISIBLE_FLAG, "w").close()
+        self.item_always_visible.title = self._always_visible_label()
+        self.update(None)
 
     def manual_refresh(self, _):
         self.update(None)
