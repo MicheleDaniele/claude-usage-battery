@@ -42,6 +42,11 @@
 Clicking the icon shows the details: used/remaining percentage and a **countdown to reset**, for both the **5-hour** and **weekly** windows.
 
 ## How it looks
+
+<div align="center">
+<img src="docs/menubar-screenshot.png" alt="Claude Usage Battery in the macOS menu bar showing 81%" width="220">
+</div>
+
 | Level | Color | Meaning |
 |:-----:|:-----:|:--------|
 | ≥ 50% | 🟢 green  | You're good |
