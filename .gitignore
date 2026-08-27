@@ -1,0 +1,10 @@
+# Ambienti e artefatti di build
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.egg-info/
+
+# Sistema
+.DS_Store

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-usage-battery"
+version = "1.0.0"
+description = "Batteria nel menu bar / system tray che mostra la percentuale rimasta di Claude Code."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Michele Daniele" }]
+keywords = ["claude", "claude-code", "usage", "menubar", "tray", "battery"]
+
+dependencies = [
+    "pillow>=10.0.0",
+    "requests>=2.31.0",
+    "rumps>=0.4.0 ; sys_platform == 'darwin'",
+    "pystray>=0.19.5 ; sys_platform != 'darwin'",
+]
+
+[project.scripts]
+claude-battery = "claude_battery:main"
+
+[tool.setuptools]
+# Moduli singoli (non un package a cartella): li impacchettiamo tutti.
+py-modules = [
+    "claude_battery",
+    "usage_core",
+    "battery_icon",
+    "menubar_mac",
+    "tray_windows",
+]
