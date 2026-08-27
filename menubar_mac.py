@@ -17,7 +17,7 @@ import rumps
 from usage_core import fetch_status, human_reset, AuthError
 from battery_icon import draw_battery
 
-REFRESH_SECONDS = 15
+REFRESH_SECONDS = 30
 ICON_PATH = os.path.join(tempfile.gettempdir(), "claude_battery_icon.png")
 
 
@@ -66,9 +66,18 @@ class ClaudeBatteryApp(rumps.App):
             self.item_week_reset.title = "   reset: —"
             return
         except Exception as e:
-            self.title = " ⚠"
-            self.item_updated.title = f"Errore: {str(e)[:40]}"
+            # Intoppo momentaneo (rete/rate-limit): NON mostriamo un errore,
+            # teniamo l'ultimo valore valido e riproviamo al prossimo ciclo.
+            self._fails = getattr(self, "_fails", 0) + 1
+            if self._fails >= 4 and not getattr(self, "_had_ok", False):
+                # Non siamo mai riusciti a leggere: allora sì segnaliamo.
+                self.title = " ⚠"
+                self.item_updated.title = f"Errore: {str(e)[:40]}"
+            else:
+                self.item_updated.title = "Aggiornamento non riuscito, riprovo…"
             return
+        self._fails = 0
+        self._had_ok = True
 
         fh = st["five_hour"]
         wk = st["seven_day"]
