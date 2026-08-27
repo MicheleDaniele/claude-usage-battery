@@ -1,8 +1,10 @@
 """
-claude_battery.py — Entry point unico multipiattaforma.
+claude_battery.py — Cross-platform entry point.
 
-Installato via pip, espone il comando `claude-battery`, che avvia l'app giusta
-in base al sistema operativo: menu bar su macOS, system tray su Windows/Linux.
+Installed via pip, this exposes the `claude-battery` command, which launches
+the appropriate front-end based on the current OS:
+  - macOS  → menu bar app (menubar_mac.py)
+  - others → system tray app (tray_windows.py)
 """
 
 import platform
@@ -15,7 +17,6 @@ def main():
         from menubar_mac import ClaudeBatteryApp
         ClaudeBatteryApp().run()
     else:
-        # Windows e Linux usano la system tray.
         from tray_windows import ClaudeBatteryTray
         ClaudeBatteryTray().run()
 

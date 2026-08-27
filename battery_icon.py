@@ -1,10 +1,10 @@
 """
-battery_icon.py — Disegna un'icona a forma di batteria riempita in proporzione
-alla percentuale rimasta, colorata per livello. Usata sia dal menu bar Mac sia
-dalla system tray di Windows.
+battery_icon.py — Draws a battery icon filled proportionally to the remaining
+percentage, color-coded by level. Used by both the macOS menu bar and the
+Windows/Linux system tray.
 
-Disegnata ad alta risoluzione (super-sampling) e poi ridotta con anti-aliasing,
-così i bordi restano netti anche sulla barra dei menu retina.
+Rendered at high resolution (super-sampling) then downscaled with anti-aliasing
+so edges stay crisp on Retina / HiDPI displays.
 """
 
 import math
@@ -13,18 +13,18 @@ from PIL import Image, ImageDraw
 
 from usage_core import level_color
 
-# Risoluzione di lavoro (super-sampling): disegno grande e poi rimpicciolisco.
-SS = 8  # fattore di super-sampling
+# Super-sampling factor: draw large, then shrink.
+SS = 8
 
 
 def _draw_claude_burst(d, cx, cy, R, color):
     """
-    Disegna il 'burst' di Claude (raggiera stile asterisco/scintilla) centrato
-    in (cx, cy) con raggio R. Usato dentro la batteria per distinguerla da
-    quella di sistema. In modalità mono passare color=(0,0,0,0) per bucarlo.
+    Draw the Claude burst (asterisk/sparkle raycast) centered at (cx, cy)
+    with radius R. Used inside the battery to distinguish it from the system
+    battery icon. Pass color=(0,0,0,0) to punch a transparent hole (mono mode).
     """
-    n = 7                     # 7 linee passanti = 14 raggi
-    inner = R * 0.16          # piccolo vuoto centrale
+    n = 7                     # 7 lines through center = 14 rays
+    inner = R * 0.16          # small gap at the center
     width = max(1, int(R * 0.20))
     for i in range(n):
         ang = math.pi * i / n
@@ -33,33 +33,38 @@ def _draw_claude_burst(d, cx, cy, R, color):
             [(cx - dx * R, cy - dy * R), (cx + dx * R, cy + dy * R)],
             fill=color, width=width,
         )
-    # piccolo tondo centrale per compattare la raggiera
+    # Small center dot to tighten the raycast
     d.ellipse([cx - inner, cy - inner, cx + inner, cy + inner], fill=color)
 
 
 def draw_battery(remaining_pct: int, scale: int = 3, charging: bool = False,
                  mono: bool = False) -> Image.Image:
     """
-    Batteria orizzontale in stile 'stato batteria' del sistema.
-    remaining_pct: 0..100 (percentuale di token/carica che resta).
-    scale: dimensione finale (3 ~ nitido su barra dei menu retina).
-    charging: se True disegna un piccolo fulmine.
-    mono: True → icona monocromatica (nero+alpha) da usare come "template"
-          nel menu bar macOS: si adatta automaticamente a tema chiaro/scuro,
-          esattamente come l'icona della batteria di sistema.
+    Draw a horizontal battery in system-battery style.
+
+    Args:
+        remaining_pct: 0..100 — percentage of tokens / charge remaining.
+        scale: final icon size multiplier (3 looks sharp on Retina menu bars).
+        charging: if True, draws a small lightning bolt overlay.
+        mono: True → monochrome (black + alpha) icon for use as a macOS
+              "template" image — the OS recolors it automatically for
+              light/dark mode, matching the system battery icon behavior.
+
+    Returns:
+        A PIL Image in RGBA mode.
     """
     remaining_pct = max(0, min(100, int(remaining_pct)))
 
-    # Proporzioni in "unità" (poi scalate). Rapporto ~2:1, non schiacciato.
-    W, H = 26, 13          # corpo batteria
-    nub_w, nub_h = 2, 5    # terminale +
-    radius = 3             # raccordo angoli
-    wall = 1.4             # spessore parete
-    gap = 1.6              # spazio tra parete e riempimento
+    # Dimensions in "units" (scaled later). ~2:1 ratio, not squashed.
+    W, H = 26, 13          # battery body
+    nub_w, nub_h = 2, 5    # positive terminal nub
+    radius = 3             # corner rounding
+    wall = 1.4             # wall thickness
+    gap = 1.6              # gap between wall and fill
 
-    u = SS                 # 1 unità = SS pixel in fase di disegno
-    mx, my = 1.5, 3.0      # margine trasparente (my alto = batteria più piccola
-                           # rispetto all'altezza della barra dei menu)
+    u = SS                 # 1 unit = SS pixels at draw time
+    mx, my = 1.5, 3.0      # transparent margin (my top = battery smaller than
+                           # the menu bar height)
     img_w = (W + nub_w) * u
     img_h = H * u
     big = Image.new("RGBA",
@@ -67,12 +72,12 @@ def draw_battery(remaining_pct: int, scale: int = 3, charging: bool = False,
                     (0, 0, 0, 0))
     d = ImageDraw.Draw(big)
 
-    ox, oy = mx * u, my * u  # margine
-    # In modalità template usiamo nero pieno: macOS lo colora da sé.
+    ox, oy = mx * u, my * u
+    # Template mode uses solid black; macOS recolors it automatically.
     outline = (0, 0, 0, 255) if mono else (170, 170, 170, 255)
 
-    # Corpo (guscio esterno) con parete spessa: disegno il rettangolo pieno e
-    # poi "svuoto" l'interno per ottenere una parete uniforme e pulita.
+    # Outer shell: draw filled rect then punch out the interior to get a
+    # clean, uniform wall thickness.
     body = [ox, oy, ox + W * u, oy + H * u]
     d.rounded_rectangle(body, radius=radius * u, fill=outline)
     inner_shell = [
@@ -81,14 +86,14 @@ def draw_battery(remaining_pct: int, scale: int = 3, charging: bool = False,
     ]
     d.rounded_rectangle(inner_shell, radius=(radius - wall) * u, fill=(0, 0, 0, 0))
 
-    # Terminale + a destra
+    # Positive terminal nub on the right
     ny0 = oy + (H - nub_h) / 2 * u
     d.rounded_rectangle(
         [ox + W * u, ny0, ox + (W + nub_w) * u, ny0 + nub_h * u],
         radius=1 * u, fill=outline,
     )
 
-    # Riempimento interno proporzionale
+    # Proportional fill bar
     fx0 = ox + (wall + gap) * u
     fy0 = oy + (wall + gap) * u
     fx1 = ox + (W - wall - gap) * u
@@ -102,12 +107,12 @@ def draw_battery(remaining_pct: int, scale: int = 3, charging: bool = False,
             [fx0, fy0, fx0 + fill_w, fy1], radius=1.2 * u, fill=color,
         )
 
-    # Logo Claude (burst) centrato e SEMPRE interamente visibile:
-    # - sulla parte CARICA (a sinistra della linea di carica) è uno stencil
-    #   (foro) che lascia vedere lo sfondo;
-    # - sulla parte SCARICA (a destra) è disegnato pieno.
-    # Così la "linea di carica" attraversa il logo, che resta leggibile a
-    # qualsiasi percentuale.
+    # Claude burst logo, always fully centered and visible:
+    # - over the CHARGED region (left of the charge line): punched as a stencil
+    #   (transparent hole) so the background shows through;
+    # - over the DEPLETED region (right of the charge line): drawn solid.
+    # This way the charge line passes through the logo and it stays legible
+    # at any percentage.
     cx = ox + (wall + gap) * u + full_w / 2
     cy = oy + H / 2 * u
     R = H * 0.36 * u
@@ -115,19 +120,19 @@ def draw_battery(remaining_pct: int, scale: int = 3, charging: bool = False,
 
     burst_layer = Image.new("RGBA", big.size, (0, 0, 0, 0))
     _draw_claude_burst(ImageDraw.Draw(burst_layer), cx, cy, R, (0, 0, 0, 255))
-    mask = burst_layer.split()[3]  # canale alpha del burst
+    mask = burst_layer.split()[3]  # alpha channel of the burst
 
-    left_mask = mask.copy()   # solo dove c'è riempimento (stencil/foro)
+    left_mask = mask.copy()   # only where filled (stencil / hole)
     ImageDraw.Draw(left_mask).rectangle([fill_x, 0, big.size[0], big.size[1]], fill=0)
-    right_mask = mask.copy()  # solo dove è scarico (pieno)
+    right_mask = mask.copy()  # only where depleted (solid)
     ImageDraw.Draw(right_mask).rectangle([0, 0, fill_x, big.size[1]], fill=0)
 
-    hole = (0, 0, 0, 0)                                   # foro trasparente
+    hole = (0, 0, 0, 0)
     solid = (0, 0, 0, 255) if mono else level_color(remaining_pct)
-    big.paste(hole, (0, 0), left_mask)                   # stencil sulla carica
-    big.paste(solid, (0, 0), right_mask)                 # pieno sulla scarica
+    big.paste(hole, (0, 0), left_mask)    # stencil over the charged region
+    big.paste(solid, (0, 0), right_mask)  # solid over the depleted region
 
-    # Riduzione con anti-aliasing alla dimensione finale.
+    # Downscale with anti-aliasing to the final size.
     final_w = int((W + nub_w + 2 * mx) * scale)
     final_h = int((H + 2 * my) * scale)
     return big.resize((final_w, final_h), Image.LANCZOS)

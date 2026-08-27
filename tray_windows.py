@@ -1,11 +1,11 @@
 """
-tray_windows.py — App per la system tray di Windows (funziona anche su Linux).
+tray_windows.py — Windows / Linux system tray app for Claude Usage Battery.
 
-Mostra un'icona a batteria colorata nella tray (in basso a destra, vicino
-all'orologio/batteria). Passando il mouse sopra vedi la percentuale rimasta;
-col tasto destro apri il menu con i dettagli 5 ore / settimana e i reset.
+Shows a color-coded battery icon in the tray (bottom-right, near the clock).
+Hovering shows the remaining percentage; right-clicking opens a menu with
+5-hour / weekly details and reset countdowns.
 
-Avvio:  pythonw tray_windows.py     (pythonw = senza finestra console)
+Launch:  pythonw tray_windows.py     (pythonw = no console window)
 """
 
 import threading
@@ -26,38 +26,38 @@ class ClaudeBatteryTray:
         self.icon = pystray.Icon(
             "claude_battery",
             icon=draw_battery(0, scale=2),
-            title="Claude — caricamento…",
+            title="Claude — loading…",
             menu=self._build_menu(),
         )
 
-    # Le voci di menu leggono lo stato corrente tramite lambda dinamiche.
     def _build_menu(self):
+        """Build a dynamic menu that reads current state via lambdas."""
         def line_5h(_):
             if self.error:
                 return self.error
             fh = self.status and self.status["five_hour"]
             if not fh:
-                return "5 ore: —"
-            return f"5 ore — rimasto {fh['remaining_pct']}% · rinnovo {human_reset(fh['reset'])}"
+                return "5 hours: —"
+            return f"5 hours — {fh['remaining_pct']}% remaining · resets {human_reset(fh['reset'])}"
 
         def line_week(_):
             wk = self.status and self.status["seven_day"]
             if not wk:
-                return "Settimana: —"
-            return f"Settimana — rimasto {wk['remaining_pct']}% · rinnovo {human_reset(wk['reset'])}"
+                return "Weekly: —"
+            return f"Weekly — {wk['remaining_pct']}% remaining · resets {human_reset(wk['reset'])}"
 
         def line_updated(_):
             if not self.status:
-                return "Aggiornato: mai"
-            return "Aggiornato: " + self.status["updated"].astimezone().strftime("%H:%M:%S")
+                return "Updated: never"
+            return "Updated: " + self.status["updated"].astimezone().strftime("%H:%M:%S")
 
         return pystray.Menu(
             pystray.MenuItem(line_5h, None, enabled=False),
             pystray.MenuItem(line_week, None, enabled=False),
             pystray.MenuItem(line_updated, None, enabled=False),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Aggiorna adesso", self.on_refresh),
-            pystray.MenuItem("Esci", self.on_quit),
+            pystray.MenuItem("Refresh now", self.on_refresh),
+            pystray.MenuItem("Quit", self.on_quit),
         )
 
     def on_refresh(self, icon, item):
@@ -74,13 +74,13 @@ class ClaudeBatteryTray:
             if fh:
                 rem = fh["remaining_pct"]
                 self.icon.icon = draw_battery(rem, scale=2, charging=rem >= 95)
-                self.icon.title = f"Claude — {rem}% (5h) · rinnovo {human_reset(fh['reset'])}"
+                self.icon.title = f"Claude — {rem}% (5h) · resets {human_reset(fh['reset'])}"
         except AuthError as e:
             self.error = str(e)
-            self.icon.title = "Claude — accedi in Claude Code"
+            self.icon.title = "Claude — log in to Claude Code"
         except Exception as e:
-            self.error = f"Errore: {e}"
-            self.icon.title = f"Claude — errore"
+            self.error = f"Error: {e}"
+            self.icon.title = "Claude — error"
         self.icon.update_menu()
 
     def _loop(self):
