@@ -18,9 +18,9 @@
 - [How the data works (and privacy)](#how-the-data-works-and-privacy)
 - [Requirements](#requirements)
 - [Installation](#installation)
-  - [A · pipx ](#a--pipx-recommended)
+  - [A · pipx ](#a--pipx)
   - [B · pip in a virtualenv](#b--pip-in-a-virtualenv)
-  - [C · double-click installer (recommended)](#c--double-click-installer)
+  - [C · double-click installer (recommended)](#c--double-click-installer)-recommended
 - [Auto-start](#auto-start)
   - [When you launch Claude Code (`claude` in the terminal)](#when-you-launch-claude-code-claude-in-the-terminal)
   - [At system startup](#at-system-startup)
@@ -75,7 +75,7 @@ This percentage **is not stored in any local file**: Claude Code retrieves it by
 
 ## Installation
 
-### A · pipx (recommended)
+### A · pipx
 `pipx` installs the app in an isolated environment and creates the global command `claude-battery`. It's the cleanest approach.
 
 ```bash
@@ -100,7 +100,7 @@ pip install git+https://github.com/MicheleDaniele/claude-usage-battery
 claude-battery
 ```
 
-### C · double-click installer
+### C · double-click installer (recommended)
 If you'd rather not touch the terminal, after downloading the project:
 - **macOS** → double-click **`install-mac.command`**
 - **Windows** → right-click **`install-windows.ps1`** → *Run with PowerShell*
