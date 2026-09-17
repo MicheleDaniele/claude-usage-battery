@@ -194,6 +194,10 @@ Choice: _
 
 Credentials remain saved — you only log in once per account.
 
+<div align="center">
+<img src="docs/claude-multiaccount.png" alt="Account picker in the terminal: Choose Claude account 1) Personal 2) Work" width="620">
+</div>
+
 ---
 
 ## Configuration
