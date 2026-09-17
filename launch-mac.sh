@@ -1,6 +1,6 @@
 #!/bin/bash
-# Avvia la batteria Claude nel menu bar SE non è già in esecuzione.
-# Idempotente: richiamato ad ogni avvio di Claude Code (hook SessionStart).
+# Start the Claude Battery in the menu bar only if not already running.
+# Idempotent: called on every Claude Code session start (SessionStart hook).
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Già attiva? (sia versione pipx 'claude-battery' sia venv 'menubar_mac.py')
