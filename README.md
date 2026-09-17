@@ -135,64 +135,55 @@ The installers (Option C) take care of this: a *LaunchAgent* on macOS (`~/Librar
 
 ## Multi-account support
 
-If you are logged into **more than one Claude Code account** (e.g. a personal Pro plan and a work Team plan), the battery app detects them all automatically from the macOS Keychain and shows a labelled section for each one in the menu — no extra configuration needed.
+If you have more than one Claude Code account (e.g. a personal plan and a work plan), you can configure the terminal to ask **which account to use every time you type `claude`**. Each account lives in its own config directory, so credentials never mix.
 
-### How accounts are detected
-On macOS, Claude Code stores each account as a separate Keychain entry named `Claude Code-credentials`, `Claude Code-credentials-<id>`, etc. The app scans all of them at startup and rebuilds the menu whenever the list changes (e.g. after a new `claude auth login`).
+The battery app detects all logged-in accounts automatically from the macOS Keychain and shows a labelled section for each one — no extra setup needed on that side.
 
-### Account-picker shell function
-If you want the terminal to ask you **which account to use every time you type `claude`**, add the function below to your `~/.zshrc` (or `~/.bashrc`).  
-Edit the `LABELS` array to match your own account names.
+### One-time setup
+
+**1. Create a separate config directory for each account:**
 
 ```bash
-# ~/.zshrc  –  account picker for Claude Code
+mkdir -p ~/.claude-personal
+mkdir -p ~/.claude-work
+```
+
+**2. Add the account-picker function to `~/.zshrc` (or `~/.bashrc`):**
+
+```bash
 function claude() {
-  # Collect all Claude Code Keychain services
-  local -a services
-  while IFS= read -r svc; do
-    services+=("$svc")
-  done < <(security dump-keychain 2>/dev/null \
-    | grep -o '"svce"<blob>="Claude Code-credentials[^"]*"' \
-    | sed 's/"svce"<blob>="//;s/"$//' \
-    | sort -u)
-
-  # Only show the picker when more than one account exists
-  if [[ ${#services[@]} -le 1 ]]; then
-    command claude "$@"
-    return
-  fi
-
-  # ── Customize these labels to match your accounts ──────────────
-  local -a LABELS=("Personal" "Work")
-  # ───────────────────────────────────────────────────────────────
-
   echo "Choose Claude account:"
-  for i in "${!services[@]}"; do
-    local label="${LABELS[$i]:-Account $((i+1))}"
-    printf "  %d) %s\n" "$((i+1))" "$label"
-  done
-  printf "Choice: "
-  read -r choice
+  echo "  1) Personal"
+  echo "  2) Work"
+  read -r "choice?Choice: "
 
-  if [[ "$choice" =~ ^[0-9]+$ ]] \
-      && (( choice >= 1 && choice <= ${#services[@]} )); then
-    local chosen="${services[$((choice-1))]}"
-    # Tell the battery app which account to highlight
-    echo "$chosen" > /tmp/claude_battery_account
-    printf "→ %s\n" "${LABELS[$((choice-1))]:-$chosen}"
-  fi
-
-  command claude "$@"
+  case $choice in
+    1) CLAUDE_CONFIG_DIR=~/.claude-personal command claude "$@" ;;
+    2) CLAUDE_CONFIG_DIR=~/.claude-work    command claude "$@" ;;
+    *) echo "Invalid choice" ;;
+  esac
 }
 ```
 
-After saving, reload your shell:
+> Rename `Personal` / `Work` and add more `case` entries to match your own accounts.
+
+**3. Reload the shell:**
 
 ```bash
 source ~/.zshrc
 ```
 
-From then on, typing `claude` will show the picker whenever multiple accounts are logged in:
+**4. Copy your current account's credentials into its folder** (run this once for the account that is already logged in, e.g. the personal one):
+
+```bash
+cp -r ~/.claude/. ~/.claude-personal/
+```
+
+**5. Log into the second account:** type `claude`, pick the other profile, and follow the browser authentication flow. Credentials are saved automatically in the corresponding directory.
+
+### Daily usage
+
+From now on, every time you type `claude` in the terminal you will be prompted to choose an account:
 
 ```
 Choose Claude account:
@@ -201,7 +192,7 @@ Choose Claude account:
 Choice: _
 ```
 
-> **Note:** the function writes the chosen Keychain service name to `/tmp/claude_battery_account`. The battery app reads this file to decide which account's stats to highlight. The Claude CLI itself always uses whichever credentials are currently active in the Keychain.
+Credentials remain saved — you only log in once per account.
 
 ---
 
