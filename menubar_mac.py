@@ -72,59 +72,71 @@ def _is_claude_active() -> bool:
 
 class _AccountRows:
     """Holds the rumps menu items for one account."""
+
+    # rumps keys menu items by title; duplicate titles collapse entries.
+    # We suffix every title with (idx+1) invisible zero-width spaces so all
+    # items remain unique in the rumps dict regardless of display text.
+
     def __init__(self, header: rumps.MenuItem | None,
                  item_5h: rumps.MenuItem, item_5h_reset: rumps.MenuItem,
-                 item_week: rumps.MenuItem, item_week_reset: rumps.MenuItem):
+                 item_week: rumps.MenuItem, item_week_reset: rumps.MenuItem,
+                 plan_label: str = "", idx: int = 0):
         self.header = header
         self.item_5h = item_5h
         self.item_5h_reset = item_5h_reset
         self.item_week = item_week
         self.item_week_reset = item_week_reset
+        self._plan_label = plan_label
+        self._u = "​" * (idx + 1)  # unique invisible suffix
+
+    @staticmethod
+    def _vis(item: rumps.MenuItem, visible: bool):
+        item._menuitem.setHidden_(not visible)
 
     def as_list(self) -> list:
         rows = []
-        if self.header:
+        if self.header is not None:
             rows.append(self.header)
         rows += [self.item_5h, self.item_5h_reset, self.item_week, self.item_week_reset]
         return rows
 
     def set_loading(self, label: str):
-        if self.header:
-            self.header.title = label
-        self.item_5h.title = "5 hours: —"
-        self.item_5h_reset.title = "   resets: —"
-        self.item_week.title = "Weekly: —"
-        self.item_week_reset.title = "   resets: —"
+        if self.header is not None:
+            self.header.title = self._plan_label + self._u
+        self.item_5h.title = "5 hours: —" + self._u
+        self.item_5h_reset.title = "   resets: —" + self._u
+        self.item_week.title = "Weekly: —" + self._u
+        self.item_week_reset.title = "   resets: —" + self._u
 
     def set_error(self, msg: str):
-        if self.header:
-            self.header.title = msg
-        else:
-            self.item_5h.title = msg
-        self.item_5h_reset.title = "   —"
-        self.item_week.title = "Weekly: —"
-        self.item_week_reset.title = "   —"
+        if self.header is not None:
+            self.header.title = self._plan_label + self._u
+        self.item_5h.title = msg + self._u
+        _AccountRows._vis(self.item_5h_reset, False)
+        _AccountRows._vis(self.item_week, False)
+        _AccountRows._vis(self.item_week_reset, False)
 
     def set_data(self, fh: dict | None, wk: dict | None, stale: bool = False):
         stale_tag = "  (cached)" if stale else ""
+        _AccountRows._vis(self.item_5h_reset, fh is not None)
+        _AccountRows._vis(self.item_week, True)
+        _AccountRows._vis(self.item_week_reset, wk is not None)
         if fh:
             self.item_5h.title = (
                 f"5 hours — {fh['remaining_pct']}% remaining"
-                f"  ({fh['used_pct']}% used){stale_tag}"
+                f"  ({fh['used_pct']}% used){stale_tag}" + self._u
             )
-            self.item_5h_reset.title = f"   resets {human_reset(fh['reset'])}"
+            self.item_5h_reset.title = f"   resets {human_reset(fh['reset'])}" + self._u
         else:
-            self.item_5h.title = f"5 hours: no data{stale_tag}"
-            self.item_5h_reset.title = "   —"
+            self.item_5h.title = f"5 hours: no data{stale_tag}" + self._u
         if wk:
             self.item_week.title = (
                 f"Weekly — {wk['remaining_pct']}% remaining"
-                f"  ({wk['used_pct']}% used){stale_tag}"
+                f"  ({wk['used_pct']}% used){stale_tag}" + self._u
             )
-            self.item_week_reset.title = f"   resets {human_reset(wk['reset'])}"
+            self.item_week_reset.title = f"   resets {human_reset(wk['reset'])}" + self._u
         else:
-            self.item_week.title = "Weekly: —"
-            self.item_week_reset.title = "   —"
+            self.item_week.title = "Weekly: —" + self._u
 
 
 class ClaudeBatteryApp(rumps.App):
@@ -133,7 +145,6 @@ class ClaudeBatteryApp(rumps.App):
         NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
 
         self._account_services = _list_keychain_services()
-        multi = len(self._account_services) > 1
 
         # Cache: svc -> last successful fetch result
         self._cache: dict[str, dict] = {}
@@ -150,13 +161,17 @@ class ClaudeBatteryApp(rumps.App):
         for i, svc in enumerate(self._account_services):
             if i > 0:
                 menu_items.append(None)
-            header = rumps.MenuItem(service_label(svc)) if multi else None
+            label = service_label(svc)
+            u = "​" * (i + 1)  # same invisible suffix used in _AccountRows
+            header = rumps.MenuItem(label + u)
             rows = _AccountRows(
                 header=header,
-                item_5h=rumps.MenuItem("5 hours: —"),
-                item_5h_reset=rumps.MenuItem("   resets: —"),
-                item_week=rumps.MenuItem("Weekly: —"),
-                item_week_reset=rumps.MenuItem("   resets: —"),
+                item_5h=rumps.MenuItem("5 hours: —" + u),
+                item_5h_reset=rumps.MenuItem("   resets: —" + u),
+                item_week=rumps.MenuItem("Weekly: —" + u),
+                item_week_reset=rumps.MenuItem("   resets: —" + u),
+                plan_label=label,
+                idx=i,
             )
             rows.set_loading("loading…")
             self._rows[svc] = rows
@@ -245,7 +260,9 @@ class ClaudeBatteryApp(rumps.App):
         if not active_svcs:
             self._show()
             self.title = " login?"
-            for rows in self._rows.values():
+            for svc, rows in self._rows.items():
+                if rows.header is not None:
+                    rows.header.title = self._header_title(svc) + rows._u
                 rows.set_error("Log in to Claude Code")
             return
 
@@ -267,11 +284,11 @@ class ClaudeBatteryApp(rumps.App):
 
         # Update per-account rows
         for svc, rows in self._rows.items():
+            if rows.header is not None:
+                rows.header.title = self._header_title(svc) + rows._u
             if svc not in self._cache:
                 rows.set_error("not logged in")
                 continue
-            if rows.header:
-                rows.header.title = self._header_title(svc)
             cached = self._cache[svc]
             rows.set_data(
                 fh=cached.get("five_hour"),
@@ -292,5 +309,5 @@ class ClaudeBatteryApp(rumps.App):
 
 
 if __name__ == "__main__":
-    _lock = _acquire_singleton()  # noqa: F841 — must stay open to hold the lock
+    _acquire_singleton()
     ClaudeBatteryApp().run()
