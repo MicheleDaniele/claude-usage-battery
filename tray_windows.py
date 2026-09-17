@@ -8,15 +8,34 @@ Hovering shows the remaining percentage; right-clicking opens a menu with
 Launch:  pythonw tray_windows.py     (pythonw = no console window)
 """
 
+import os
 import threading
 import time
 
 import pystray
 
-from usage_core import fetch_status, human_reset, AuthError
+from usage_core import fetch_status, human_reset, AuthError, CRED_FILE
 from battery_icon import draw_battery
 
 REFRESH_SECONDS = 15
+
+_AUTH_HINT = (
+    "Claude credentials not found.\n"
+    "Run 'claude' in a terminal and log in,\n"
+    "then restart Claude Usage Battery."
+)
+
+
+def _check_credentials_on_startup() -> None:
+    """Show a blocking notification if credentials are missing before the tray starts."""
+    if not os.path.exists(CRED_FILE):
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            _AUTH_HINT,
+            "Claude Usage Battery — Login required",
+            0x30,  # MB_ICONWARNING | MB_OK
+        )
 
 
 class ClaudeBatteryTray:
@@ -79,8 +98,11 @@ class ClaudeBatteryTray:
             self.error = str(e)
             self.icon.title = "Claude — log in to Claude Code"
         except Exception as e:
-            self.error = f"Error: {e}"
-            self.icon.title = "Claude — error"
+            if "429" in str(e):
+                self.icon.title = "Claude — rate limited, retrying…"
+            else:
+                self.error = f"Error: {e}"
+                self.icon.title = "Claude — error"
         self.icon.update_menu()
 
     def _loop(self):
@@ -94,4 +116,5 @@ class ClaudeBatteryTray:
 
 
 if __name__ == "__main__":
+    _check_credentials_on_startup()
     ClaudeBatteryTray().run()

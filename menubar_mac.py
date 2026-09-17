@@ -14,11 +14,12 @@ import tempfile
 import rumps
 from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
 
-from usage_core import fetch_status, human_reset, AuthError
+from usage_core import (fetch_all_accounts, fetch_account_info, human_reset,
+                        _list_keychain_services, service_label)
 from battery_icon import draw_battery
 
 LOCK_PATH = os.path.join(tempfile.gettempdir(), "claude_battery.lock")
-REFRESH_SECONDS = 15
+REFRESH_SECONDS = 60
 
 
 def _acquire_singleton():
@@ -27,19 +28,15 @@ def _acquire_singleton():
     try:
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
-        sys.exit(0)  # another instance is active, exit silently
-    return f  # keep file open to hold the lock
+        sys.exit(0)
+    return f
+
 
 ICON_PATH = os.path.join(tempfile.gettempdir(), "claude_battery_icon.png")
 
-# Exact process names that indicate an active Claude session.
 _CLAUDE_PROCESS_NAMES = ("claude",)
-# Desktop app process name as it appears in pgrep.
 _CLAUDE_APP_NAME = "Claude"
-# Browser process names that may host Claude (e.g. Claude for Chrome extension).
 _BROWSER_PROCESS_NAMES = ("Google Chrome", "Chromium", "Brave Browser", "Arc")
-
-# Path to the "always visible" preference file.
 _ALWAYS_VISIBLE_FLAG = os.path.join(tempfile.gettempdir(), "claude_battery_always_visible")
 
 
@@ -48,46 +45,124 @@ def _always_visible() -> bool:
 
 
 def _is_claude_active() -> bool:
-    """Return True if at least one Claude process (CLI, desktop app, or browser) is running."""
     if _always_visible():
         return True
     try:
-        r = subprocess.run(
-            ["ps", "-ax", "-o", "comm"],
-            capture_output=True, text=True, timeout=5
-        )
-        names = set(line.strip() for line in r.stdout.splitlines())
+        r = subprocess.run(["ps", "-ax", "-o", "comm"], capture_output=True, text=True, timeout=5)
+        # ps on macOS returns full paths (e.g. /Applications/Google Chrome.app/.../Google Chrome)
+        # so we must compare against the basename, not the full path.
+        basenames = {os.path.basename(line.strip()) for line in r.stdout.splitlines() if line.strip()}
         return (
-            any(n in names for n in _CLAUDE_PROCESS_NAMES)
-            or _CLAUDE_APP_NAME in names
-            or any(n in names for n in _BROWSER_PROCESS_NAMES)
+            any(n in basenames for n in _CLAUDE_PROCESS_NAMES)
+            or _CLAUDE_APP_NAME in basenames
+            or any(n in basenames for n in _BROWSER_PROCESS_NAMES)
         )
     except Exception:
         return False
 
 
+# Per account the menu shows (when multi-account):
+#   [email — Subscription]      ← header (disabled)
+#   5 hours — X% remaining (Y% used)
+#      resets in Zh Mm
+#   Weekly — X% remaining (Y% used)
+#      resets in Xd Yh
+#
+# Single account: same but without the header row.
+
+class _AccountRows:
+    """Holds the rumps menu items for one account."""
+    def __init__(self, header: rumps.MenuItem | None,
+                 item_5h: rumps.MenuItem, item_5h_reset: rumps.MenuItem,
+                 item_week: rumps.MenuItem, item_week_reset: rumps.MenuItem):
+        self.header = header
+        self.item_5h = item_5h
+        self.item_5h_reset = item_5h_reset
+        self.item_week = item_week
+        self.item_week_reset = item_week_reset
+
+    def as_list(self) -> list:
+        rows = []
+        if self.header:
+            rows.append(self.header)
+        rows += [self.item_5h, self.item_5h_reset, self.item_week, self.item_week_reset]
+        return rows
+
+    def set_loading(self, label: str):
+        if self.header:
+            self.header.title = label
+        self.item_5h.title = "5 hours: —"
+        self.item_5h_reset.title = "   resets: —"
+        self.item_week.title = "Weekly: —"
+        self.item_week_reset.title = "   resets: —"
+
+    def set_error(self, msg: str):
+        if self.header:
+            self.header.title = msg
+        else:
+            self.item_5h.title = msg
+        self.item_5h_reset.title = "   —"
+        self.item_week.title = "Weekly: —"
+        self.item_week_reset.title = "   —"
+
+    def set_data(self, fh: dict | None, wk: dict | None, stale: bool = False):
+        stale_tag = "  (cached)" if stale else ""
+        if fh:
+            self.item_5h.title = (
+                f"5 hours — {fh['remaining_pct']}% remaining"
+                f"  ({fh['used_pct']}% used){stale_tag}"
+            )
+            self.item_5h_reset.title = f"   resets {human_reset(fh['reset'])}"
+        else:
+            self.item_5h.title = f"5 hours: no data{stale_tag}"
+            self.item_5h_reset.title = "   —"
+        if wk:
+            self.item_week.title = (
+                f"Weekly — {wk['remaining_pct']}% remaining"
+                f"  ({wk['used_pct']}% used){stale_tag}"
+            )
+            self.item_week_reset.title = f"   resets {human_reset(wk['reset'])}"
+        else:
+            self.item_week.title = "Weekly: —"
+            self.item_week_reset.title = "   —"
+
+
 class ClaudeBatteryApp(rumps.App):
     def __init__(self):
         super().__init__("Claude", title="", quit_button=None)
-
-        # Hide the Python icon from the Dock: the app lives only in the menu bar.
         NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
 
-        self.item_5h = rumps.MenuItem("5 hours: —")
-        self.item_5h_reset = rumps.MenuItem("   resets: —")
-        self.item_week = rumps.MenuItem("Weekly: —")
-        self.item_week_reset = rumps.MenuItem("   resets: —")
+        self._account_services = _list_keychain_services()
+        multi = len(self._account_services) > 1
+
+        # Cache: svc -> last successful fetch result
+        self._cache: dict[str, dict] = {}
+        # Cache: svc -> {"email", "subscription_type"}
+        self._info_cache: dict[str, dict] = {}
+
+        self._rows: dict[str, _AccountRows] = {}
         self.item_updated = rumps.MenuItem("Updated: never")
         self.item_always_visible = rumps.MenuItem(
-            self._always_visible_label(),
-            callback=self.toggle_always_visible,
+            self._always_visible_label(), callback=self.toggle_always_visible
         )
-        self.menu = [
-            self.item_5h,
-            self.item_5h_reset,
-            None,
-            self.item_week,
-            self.item_week_reset,
+
+        menu_items: list = []
+        for i, svc in enumerate(self._account_services):
+            if i > 0:
+                menu_items.append(None)
+            header = rumps.MenuItem(service_label(svc)) if multi else None
+            rows = _AccountRows(
+                header=header,
+                item_5h=rumps.MenuItem("5 hours: —"),
+                item_5h_reset=rumps.MenuItem("   resets: —"),
+                item_week=rumps.MenuItem("Weekly: —"),
+                item_week_reset=rumps.MenuItem("   resets: —"),
+            )
+            rows.set_loading("loading…")
+            self._rows[svc] = rows
+            menu_items += rows.as_list()
+
+        menu_items += [
             None,
             self.item_updated,
             rumps.MenuItem("Refresh now", callback=self.manual_refresh),
@@ -95,13 +170,12 @@ class ClaudeBatteryApp(rumps.App):
             None,
             rumps.MenuItem("Quit", callback=rumps.quit_application),
         ]
+        self.menu = menu_items
 
-        self._visible = True  # rumps starts visible; first tick decides
+        self._visible = True
 
-        # Fast first tick (1 s) to hide immediately if Claude is not active.
         self._init_timer = rumps.Timer(self._first_tick, 1)
         self._init_timer.start()
-
         self.timer = rumps.Timer(self.update, REFRESH_SECONDS)
         self.timer.start()
 
@@ -111,12 +185,12 @@ class ClaudeBatteryApp(rumps.App):
 
     def _show(self):
         if not self._visible:
-            self._status_item.setVisible_(True)
+            self._nsapp.nsstatusitem.setVisible_(True)
             self._visible = True
 
     def _hide(self):
         if self._visible:
-            self._status_item.setVisible_(False)
+            self._nsapp.nsstatusitem.setVisible_(False)
             self._visible = False
 
     def _set_icon(self, remaining_pct, charging=False):
@@ -139,57 +213,84 @@ class ClaudeBatteryApp(rumps.App):
     def manual_refresh(self, _):
         self.update(None)
 
+    def _header_title(self, svc: str) -> str:
+        info = self._info_cache.get(svc)
+        if info and info.get("email"):
+            return f"{info['email']} — {info['subscription_type']}"
+        return service_label(svc)
+
     def update(self, _):
         if not _is_claude_active():
             self._hide()
             return
 
-        try:
-            st = fetch_status()
-        except AuthError as e:
+        accounts = fetch_all_accounts()
+
+        # Separate fresh vs transient-error results; update cache
+        fresh_svcs: set[str] = set()
+        for acct in accounts:
+            svc = acct["service"]
+            if acct["error"] is None:
+                self._cache[svc] = acct
+                fresh_svcs.add(svc)
+                # Fetch account info once (email) if not yet cached
+                if svc not in self._info_cache:
+                    try:
+                        self._info_cache[svc] = fetch_account_info(svc)
+                    except Exception:
+                        self._info_cache[svc] = {"email": "", "subscription_type": service_label(svc)}
+
+        active_svcs = {svc for svc in self._account_services if svc in self._cache}
+
+        if not active_svcs:
             self._show()
             self.title = " login?"
-            self.item_5h.title = "Log in to Claude Code"
-            self.item_5h_reset.title = f"   {e}"
-            self.item_week.title = "Weekly: —"
-            self.item_week_reset.title = "   resets: —"
-            return
-        except Exception as e:
-            self._fails = getattr(self, "_fails", 0) + 1
-            if self._fails >= 4 and not getattr(self, "_had_ok", False):
-                self._show()
-                self.title = " ⚠"
-                self.item_updated.title = f"Error: {str(e)[:40]}"
-            else:
-                self.item_updated.title = "Update failed, retrying…"
+            for rows in self._rows.values():
+                rows.set_error("Log in to Claude Code")
             return
 
-        self._fails = 0
-        self._had_ok = True
         self._show()
 
-        fh = st["five_hour"]
-        wk = st["seven_day"]
+        # Title bar icon: most critical (lowest remaining) 5h across active accounts
+        primary_fh = None
+        for svc in active_svcs:
+            fh = self._cache[svc].get("five_hour")
+            if fh and (primary_fh is None or fh["remaining_pct"] < primary_fh["remaining_pct"]):
+                primary_fh = fh
 
-        if fh:
-            rem = fh["remaining_pct"]
+        if primary_fh:
+            rem = primary_fh["remaining_pct"]
             self._set_icon(rem, charging=rem >= 95)
             self.title = f" {rem}%"
-            self.item_5h.title = f"5 hours — {rem}% remaining  ({fh['used_pct']}% used)"
-            self.item_5h_reset.title = f"   resets {human_reset(fh['reset'])}"
         else:
             self.title = " —"
-            self.item_5h.title = "5 hours: data unavailable"
 
-        if wk:
-            self.item_week.title = (
-                f"Weekly — {wk['remaining_pct']}% remaining  ({wk['used_pct']}% used)"
+        # Update per-account rows
+        for svc, rows in self._rows.items():
+            if svc not in self._cache:
+                rows.set_error("not logged in")
+                continue
+            if rows.header:
+                rows.header.title = self._header_title(svc)
+            cached = self._cache[svc]
+            rows.set_data(
+                fh=cached.get("five_hour"),
+                wk=cached.get("seven_day"),
+                stale=svc not in fresh_svcs,
             )
-            self.item_week_reset.title = f"   resets {human_reset(wk['reset'])}"
 
-        self.item_updated.title = "Updated: " + st["updated"].astimezone().strftime("%H:%M:%S")
+        # Timestamp from most recent successful fetch
+        latest = max(
+            (self._cache[s] for s in active_svcs if self._cache[s].get("updated")),
+            key=lambda a: a["updated"],
+            default=None,
+        )
+        if latest:
+            self.item_updated.title = (
+                "Updated: " + latest["updated"].astimezone().strftime("%H:%M:%S")
+            )
 
 
 if __name__ == "__main__":
-    _lock = _acquire_singleton()
+    _lock = _acquire_singleton()  # noqa: F841 — must stay open to hold the lock
     ClaudeBatteryApp().run()

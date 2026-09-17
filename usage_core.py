@@ -12,7 +12,9 @@ api.anthropic.com, exactly as Claude Code itself does.
 import json
 import os
 import platform
+import re
 import subprocess
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -25,34 +27,125 @@ CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 OAUTH_BETA = "oauth-2025-04-20"
 KEYCHAIN_SERVICE = "Claude Code-credentials"
 CRED_FILE = os.path.expanduser("~/.claude/.credentials.json")
+# Stores the user-preferred keychain service (None = auto-detect)
+ACCOUNT_PREF_FILE = os.path.join(tempfile.gettempdir(), "claude_battery_account")
 
 IS_MAC = platform.system() == "Darwin"
+
+# Tracks which keychain service was last used (for consistent write-back)
+_active_service: str = KEYCHAIN_SERVICE
 
 
 class AuthError(Exception):
     """No valid login found (user must log in to Claude Code)."""
 
 
-# --- Credential read / write ------------------------------------------------
-def _read_raw_credentials() -> dict:
-    """
-    Return the {"claudeAiOauth": {...}} dict from the Keychain (macOS)
-    or from ~/.claude/.credentials.json (Windows/Linux, and macOS fallback).
-    """
-    # 1) macOS Keychain
-    if IS_MAC:
-        try:
-            out = subprocess.run(
-                ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if out.returncode == 0 and out.stdout.strip():
-                return json.loads(out.stdout.strip())
-        except Exception:
-            pass  # fall through to file
+# --- Multi-account helpers --------------------------------------------------
+def _list_keychain_services() -> list[str]:
+    """Return all 'Claude Code-credentials*' service names found in the Keychain."""
+    if not IS_MAC:
+        return [KEYCHAIN_SERVICE]
+    try:
+        out = subprocess.run(
+            ["security", "dump-keychain"],
+            capture_output=True, text=True, timeout=10,
+        )
+        seen: list[str] = []
+        for line in out.stdout.splitlines():
+            m = re.search(r'"svce"<blob>="(Claude Code-credentials[^"]*)"', line)
+            if m and m.group(1) not in seen:
+                seen.append(m.group(1))
+        if not seen:
+            return [KEYCHAIN_SERVICE]
+        others = sorted(s for s in seen if s != KEYCHAIN_SERVICE)
+        return ([KEYCHAIN_SERVICE] if KEYCHAIN_SERVICE in seen else []) + others
+    except Exception:
+        return [KEYCHAIN_SERVICE]
 
-    # 2) Credentials file (Windows/Linux, or macOS if Keychain is unavailable)
+
+def get_preferred_service() -> str | None:
+    """Return the user-selected keychain service, or None for auto-detect."""
+    try:
+        with open(ACCOUNT_PREF_FILE) as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
+def set_preferred_service(service: str | None) -> None:
+    """Persist the preferred keychain service (None = auto-detect)."""
+    if service is None:
+        try:
+            os.remove(ACCOUNT_PREF_FILE)
+        except OSError:
+            pass
+    else:
+        with open(ACCOUNT_PREF_FILE, "w") as f:
+            f.write(service)
+
+
+def service_label(service: str) -> str:
+    """Return a human-readable label for a keychain service name."""
+    try:
+        out = subprocess.run(
+            ["security", "find-generic-password", "-s", service, "-w"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            d = json.loads(out.stdout.strip())
+            sub = d.get("claudeAiOauth", {}).get("subscriptionType", "")
+            if sub:
+                return sub.replace("_", " ").title()
+    except Exception:
+        pass
+    suffix = service.removeprefix(KEYCHAIN_SERVICE).lstrip("-")
+    return suffix[:8] if suffix else "Default"
+
+
+# --- Credential read / write ------------------------------------------------
+def _read_raw_credentials(service: str | None = None) -> dict:
+    """
+    Return the {"claudeAiOauth": {...}} dict for the given service.
+
+    If service is None: auto-detects, preferring entries with a valid token.
+    On macOS reads from the Keychain; falls back to the credentials file.
+    """
+    global _active_service
+
+    if IS_MAC:
+        if service:
+            candidates = [service]
+        else:
+            pref = get_preferred_service()
+            candidates = [pref] if pref else _list_keychain_services()
+
+        valid: list[tuple[str, dict]] = []
+        expired: list[tuple[str, dict]] = []
+        for svc in candidates:
+            try:
+                out = subprocess.run(
+                    ["security", "find-generic-password", "-s", svc, "-w"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if out.returncode != 0 or not out.stdout.strip():
+                    continue
+                data = json.loads(out.stdout.strip())
+                exp = data.get("claudeAiOauth", {}).get("expiresAt", 0)
+                if exp > time.time() * 1000 + 60_000:
+                    valid.append((svc, data))
+                else:
+                    expired.append((svc, data))
+            except Exception:
+                continue
+
+        chosen = valid or expired
+        if chosen:
+            _active_service = chosen[0][0]
+            return chosen[0][1]
+
+    # Credentials file fallback (Windows/Linux, or macOS if Keychain unavailable)
     if os.path.exists(CRED_FILE):
+        _active_service = "file"
         with open(CRED_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
 
@@ -62,20 +155,11 @@ def _read_raw_credentials() -> dict:
 
 
 def _write_raw_credentials(data: dict) -> None:
-    """Persist updated credentials (after a token refresh)."""
-    payload = json.dumps(data)
+    """Persist updated credentials — only used on Windows/Linux (file-based storage).
+    On macOS the Keychain is managed exclusively by Claude Code; this plugin
+    only reads from it and refreshes tokens in-memory to avoid corrupting entries."""
     if IS_MAC:
-        try:
-            # -U updates the entry if it already exists.
-            subprocess.run(
-                ["security", "add-generic-password", "-U",
-                 "-s", KEYCHAIN_SERVICE, "-a", KEYCHAIN_SERVICE, "-w", payload],
-                capture_output=True, text=True, timeout=10,
-            )
-            return
-        except Exception:
-            pass
-    # File fallback (Windows/Linux)
+        return  # never touch the macOS Keychain
     os.makedirs(os.path.dirname(CRED_FILE), exist_ok=True)
     with open(CRED_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f)
@@ -86,7 +170,7 @@ def _write_raw_credentials(data: dict) -> None:
 
 
 def _refresh_token(raw: dict) -> dict:
-    """Obtain a new access token using the OAuth refresh token."""
+    """Obtain a new access token using the OAuth refresh token (in-memory only on macOS)."""
     oauth = raw.get("claudeAiOauth", {})
     refresh = oauth.get("refreshToken")
     if not refresh:
@@ -112,37 +196,47 @@ def _refresh_token(raw: dict) -> dict:
     if tok.get("expires_in"):
         oauth["expiresAt"] = int(time.time() * 1000) + int(tok["expires_in"]) * 1000
     raw["claudeAiOauth"] = oauth
-    _write_raw_credentials(raw)
+    _write_raw_credentials(raw)  # no-op on macOS, writes file on Windows/Linux
     return raw
 
 
-def _valid_access_token() -> str:
-    """Return a valid access token, refreshing it if expired or about to expire."""
-    raw = _read_raw_credentials()
+def _valid_access_token(service: str | None = None) -> str:
+    """Return a valid access token for the given service (or auto-detected)."""
+    raw = _read_raw_credentials(service)
     oauth = raw.get("claudeAiOauth", {})
     token = oauth.get("accessToken")
     expires_at = oauth.get("expiresAt", 0)  # milliseconds
 
-    # Refresh if missing or expiring within 60 s.
     if not token or (expires_at and expires_at < time.time() * 1000 + 60_000):
         raw = _refresh_token(raw)
         token = raw["claudeAiOauth"]["accessToken"]
     return token
 
 
+ACCOUNT_URL = "https://api.anthropic.com/api/oauth/account"
+_HEADERS_BASE = {"anthropic-beta": OAUTH_BETA, "anthropic-version": "2023-06-01"}
+
+
+def _auth_headers(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}", **_HEADERS_BASE}
+
+
 # --- Usage endpoint call ----------------------------------------------------
 def _get_usage(token: str) -> dict:
-    resp = requests.get(
-        USAGE_URL,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "anthropic-beta": OAUTH_BETA,
-            "anthropic-version": "2023-06-01",
-        },
-        timeout=10,
-    )
-    return resp
+    return requests.get(USAGE_URL, headers=_auth_headers(token), timeout=10)
+
+
+def fetch_account_info(service: str | None = None) -> dict:
+    """Return {"email", "subscription_type"} for the given service."""
+    token = _valid_access_token(service)
+    resp = requests.get(ACCOUNT_URL, headers=_auth_headers(token), timeout=10)
+    if not resp.ok:
+        return {"email": "", "subscription_type": service_label(service or KEYCHAIN_SERVICE)}
+    data = resp.json()
+    return {
+        "email": data.get("email_address", ""),
+        "subscription_type": service_label(service or KEYCHAIN_SERVICE),
+    }
 
 
 def _parse_reset(resets_at) -> datetime | None:
@@ -169,7 +263,7 @@ def _window(obj: dict | None) -> dict | None:
     return {"used_pct": used_pct, "remaining_pct": remaining_pct, "reset": reset_dt}
 
 
-def fetch_status() -> dict:
+def fetch_status(service: str | None = None) -> dict:
     """
     Return:
       {
@@ -179,12 +273,12 @@ def fetch_status() -> dict:
       }
     Raises AuthError if no valid login is available.
     """
-    token = _valid_access_token()
+    token = _valid_access_token(service)
     resp = _get_usage(token)
 
     # A 401 can happen if the token just expired: refresh and retry once.
     if resp.status_code == 401:
-        raw = _refresh_token(_read_raw_credentials())
+        raw = _refresh_token(_read_raw_credentials(service))
         resp = _get_usage(raw["claudeAiOauth"]["accessToken"])
 
     resp.raise_for_status()
@@ -195,6 +289,39 @@ def fetch_status() -> dict:
         "seven_day": _window(data.get("seven_day")),
         "updated": datetime.now(timezone.utc),
     }
+
+
+def fetch_all_accounts() -> list[dict]:
+    """
+    Fetch usage for every account that has a working session (valid or refreshable token).
+
+    Returns a list of dicts, each with:
+      {"service", "label", "five_hour", "seven_day", "updated", "error"}
+    - Accounts with no credentials or an invalid refresh token are excluded.
+    - Accounts that fail with a transient error (429, network) are included
+      with error="rate_limited" so the caller can show cached data instead.
+    """
+    results = []
+    for svc in _list_keychain_services():
+        try:
+            st = fetch_status(svc)
+            st["service"] = svc
+            st["label"] = service_label(svc)
+            st["error"] = None
+            results.append(st)
+        except AuthError:
+            pass  # no valid session → exclude
+        except Exception as e:
+            error_type = "rate_limited" if "429" in str(e) else "error"
+            results.append({
+                "service": svc,
+                "label": service_label(svc),
+                "five_hour": None,
+                "seven_day": None,
+                "updated": None,
+                "error": error_type,
+            })
+    return results
 
 
 # --- Formatting helpers ------------------------------------------------------
